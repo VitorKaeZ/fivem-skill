@@ -6,7 +6,7 @@
 
 > **Audit vs quality-gates:** `/fxmind audit` is the **independent** post-hoc review. This file is the **author's checklist** while writing code. You cannot mark a check as pass without evidence in the diff.
 
-Theory lives in sibling files — this file only states **what to do** and **when**. Follow § links for details. The binding rule IDs (N1–N6, D1–D3, T1–T2, C1–C4) come from `.fxmind/policy/fivem-principles.md`; the tags below map each check to them.
+Theory lives in sibling files — this file only states **what to do** and **when**. Follow § links for details. The binding rule IDs (N1–N7, D1–D3, T1–T2, C1–C5) come from `.fxmind/policy/fivem-principles.md`; the tags below map each check to them.
 
 | Topic | File |
 |-------|------|
@@ -121,6 +121,7 @@ Apply **every row** that matches something you created or changed in the diff.
 | C5 | Dead code | Remove unused imports/bindings touched by the diff | §3.6 |
 | C6 | Minimal diff | Bugfix ≠ file rewrite; keep user-approved structure/async | §3.11 |
 | C7 | Constants | Extract for domain meaning, actual reuse or real configuration; keep obvious one-use literals inline | §3.12 |
+| C8 | Lexical locals | A local helper must be declared in a scope visible to every caller before that caller is defined. Use explicit forward declaration only for real cycles; never let a later `local function` turn an earlier call into a global lookup | §3.11 |
 
 ---
 
@@ -148,7 +149,7 @@ For each row in the checklist above that applies, mark **pass** or **fail + file
 
 ### Step 3 — Clean code pass
 
-Scan diff for C1–C6. Fail = fix before Gate V.
+Scan diff for C1–C8. Fail = fix before Gate V. For Lua, explicitly inspect every new/moved `local function` for callee → caller order and lexical visibility.
 
 ### Step 4 — Fix or document
 
@@ -319,6 +320,8 @@ Promote a pitfall found in self-review → `fxmind_record_correction` at Gate C 
 | `cb("ok")` in NUI | `cb({})` |
 | New `local function` with one call site | Inline in the handler/thread §3.11 |
 | Bugfix rewrote / reordered the whole file | Revert churn; keep user-approved patterns §3.11 |
+| Caller reaches a later `local function` declaration | Move callee before caller or use `local name` + later `name = function` only for a real cycle §3.11 |
+| Local helper declared in a narrower block than its caller | Move it to the nearest common lexical scope §3.11 |
 | Refactor changed behavior not in INTENT | Revert or update INTENT + PARITY |
 | `rgba` / `bg-*/70` fill on rounded NUI shell | Hex + `linear-gradient` + dim on sibling §6 |
 | Vite `entryFileNames` without `[hash]` | Remove custom names; use default `[hash]` output |

@@ -166,7 +166,7 @@ Before delivery, inspect each newly added constant/helper/file and remove it if 
 
 **Extract a `local function` only when it has 2+ call sites.** One call site → keep the body inline in the `CreateThread` / event handler / loop. Do not invent `processX`, `cleanupY`, `isZ`, `buildW` for a single use.
 
-**Order:** declare helpers **callee before caller** (generic → specific) so a `local function` exists before anything that calls it. Then `AddEventHandler` / `RegisterNetEvent` / `CreateThread`.
+**Order:** declare helpers **callee before caller** (generic → specific) so a `local function` exists before anything that calls it. A later `local function name()` does not retroactively bind an earlier reference; that earlier reference resolves outside the later local and can become a nil global at runtime. If a real cycle requires forward declaration, use `local name` first and later `name = function(...) ... end`. Keep the declaration in a lexical scope shared by every caller. Then `AddEventHandler` / `RegisterNetEvent` / `CreateThread`.
 
 **Bugfixes are surgical.** Do not reorder or rewrite the user's file to "clean it up". Preserve patterns already approved (e.g. async `build*`, simpler inline logic). Match surrounding style.
 
