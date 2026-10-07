@@ -57,6 +57,7 @@ description: FiveM development best practices for any framework (vRP, QBCore, Qb
 | C1 | minimal code, no single-use helpers | style §3.11–§3.12, communication §1.3 |
 | C2 | readable flow, no globals | architecture §3.5–§3.6, §3.8; style §3.1–§3.4 |
 | C3/C4 | validate once; clean diff | security §5.3; style §3.7, §3.9 |
+| C5 | lexical locals / callee before caller | style §3.11; architecture §3.8 |
 
 **Corrections backlog** (`.fxmind/corrections/`) categories map 1:1 to these files — promote rules into the matching file, not into a new skill.
 
