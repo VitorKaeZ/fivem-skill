@@ -191,6 +191,8 @@ end)
 
 Report missing auth as **one systemic finding** listing all unprotected events, not isolated low-severity rows.
 
+**Rule (D3):** per-`source` state (cooldowns like `lastAction[source]`, sessions, pending actions) is cleared on `playerDropped` / the framework leave hook, and identity checks use the character id, not `source`. On GTAV Enhanced a released server ID is reused by the next player, so a stale entry becomes another player's state ([game-versions.md](game-versions.md) §6.2).
+
 ### 5.2 Server-Side Data Resolution — Never Trust Client for Derivable Data
 
 The client should only send **minimal identifiers**, not derived values. The server resolves identities, names, permissions, and other data that can be looked up.

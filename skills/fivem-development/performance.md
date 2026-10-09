@@ -399,6 +399,8 @@ AddStateBagChangeHandler("sirenMuted", nil, function(bagName, key, value)
 end)
 ```
 
+**Rule (N5):** on GTAV Enhanced, state bag callbacks fire only if the entity exists, and values replicate only when explicitly set — keep the `0` guard and write replicated values with `state:set(key, value, true)` ([game-versions.md](game-versions.md) §6.2).
+
 `AddStateBagChangeHandler(keyFilter, bagFilter, handler)` returns a cookie; a handler registered for a temporary feature is removed with `RemoveStateBagChangeHandler(cookie)`.
 
 | Anti-Pattern | Problem | Solution |

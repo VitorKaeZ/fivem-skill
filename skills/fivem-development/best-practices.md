@@ -15,6 +15,7 @@
 | [style.md](style.md) | §3.1–3.4 · §3.7 · §3.9–**§3.11** tables, comments, local-function extract, checklist | `style` |
 | [security.md](security.md) | §4.6–4.8 SafeEvent/SetCooldown · §5 server auth/**§5.3 input validation** | `security` |
 | [api.md](api.md) | §4.3–4.4 cerberus exports & examples | `api` |
+| [game-versions.md](game-versions.md) | **§6.1–§6.4** GTA V Legacy vs Enhanced: detection, script-facing changes, migration audit | `game-versions` |
 | [quality-gates.md](quality-gates.md) | **Definition of Done** for task mode — checklist by artifact + self-review loop | `quality` |
 
 ## Quick load (agents)
@@ -28,6 +29,7 @@
 | Comments, lookup tables, single-use helpers §3.11, anti-patterns | [style.md](style.md) |
 | SafeEvent, endpoint auth §5.1, server resolution §5.2, input validation §5.3 | [security.md](security.md) |
 | cerberus `SendFullSync` / export signatures | [api.md](api.md) |
+| Legacy vs Enhanced, migration §6.4 | [game-versions.md](game-versions.md) |
 | **Implement / refactor code (task mode)** | [quality-gates.md](quality-gates.md) |
 | **NUI CEF overlay / Vite hash (task + audit Pass NUI)** | [fivem-react-nui/ui-guide.md](../fivem-react-nui/ui-guide.md) §2, §6 |
 | Full audit | communication §1.1 + performance (§1.6.1, §2.1.1) + audit-passes (§2.3–§2.5, Pass NUI) + architecture §3.6 + security §5.1 + §5.3 |

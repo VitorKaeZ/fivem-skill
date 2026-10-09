@@ -364,6 +364,7 @@ Before saving the report, confirm:
 - [ ] DB writes: no `SELECT`-then-write, no query per row in a loop, recurring `WHERE` columns indexed, write-behind only for loss-tolerant data (§2.1.2)
 - [ ] Server-created entities: handle tracked, delete path on empty / `onResourceStop`, presence not counted by client events (architecture §3.13)
 - [ ] Performance numbers: every ms / gain in the report is either measured (§2.6 capture cited) or labeled **expected**
+- [ ] `source`-keyed tables cleared on leave; `source` not stored as identity (game-versions §6.2). Project on / moving to Enhanced → run the §6.4 migration greps
 - [ ] Large `-1` or full-cache sync uses cerberus, not manual chunks
 - [ ] Every `build*` caller grep'd with `file:line`
 - [ ] Globals table complete for server + client scope

@@ -17,6 +17,7 @@ Theory lives in sibling files — this file only states **what to do** and **whe
 | Comments, anti-patterns, local-function extract | [style.md](style.md) §3.7, §3.10–**§3.11** |
 | SafeEvent, validation, auth | [security.md](security.md) §4.6–§4.8, §5.1–§5.3 |
 | cerberus exports | [api.md](api.md) |
+| Legacy vs Enhanced | [game-versions.md](game-versions.md) §6.2–§6.3 |
 | NUI overlay fill, Vite hash | [fivem-react-nui/ui-guide.md](../fivem-react-nui/ui-guide.md) §2, §6 |
 
 ---
@@ -95,6 +96,8 @@ Apply **every row** that matches something you created or changed in the diff.
 | L3 | Bag is output | Server never authorizes from a bag a client can write; server table is the truth | §1.6.3 |
 | L4 | Entity lifecycle | Shared entity created on the server, handle tracked, deleted on empty / `onResourceStop`, `DoesEntityExist` before use | §3.13 |
 | L5 | Presence | Server resolves who is in an area from coords — no client `enter` / `leave` counter | §3.13 |
+| L6 | `source` tables | Every new table keyed by `source` is cleared on `playerDropped` / framework leave hook; `source` never persisted as identity | §6.2 |
+| L7 | Game version | Target unknown → safe-on-both code; no Enhanced-only API (`UnregisterCommand`, `sv_syncTickRate`) unless the project confirmed Enhanced | §6.3 |
 
 ### NUI callback
 

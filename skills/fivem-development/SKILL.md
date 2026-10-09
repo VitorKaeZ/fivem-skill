@@ -1,6 +1,6 @@
 ---
 name: fivem-development
-description: FiveM development best practices for any framework (vRP, QBCore, Qbox, ESX). Covers performance, security, client/server communication, cache (cacheaside + client-side cache §2.1.1), cerberus (load balance, SafeEvent, SetCooldown), view-cache audit (audit-passes.md §2.4), client-callable endpoint exposure & server auth (§5.1), input validation (§5.3), quality gates for implementation/refactor (quality-gates.md), asset discovery, framework auto-detection, and dynamic documentation fetching. Use when the user works with FiveM, Lua scripts, natives, resources, fxmanifest, optimization, /fxmind audit, or general server development without a specific framework context.
+description: FiveM development best practices for any framework (vRP, QBCore, Qbox, ESX). Covers performance, security, client/server communication, cache (cacheaside + client-side cache §2.1.1), cerberus (load balance, SafeEvent, SetCooldown), view-cache audit (audit-passes.md §2.4), client-callable endpoint exposure & server auth (§5.1), input validation (§5.3), quality gates for implementation/refactor (quality-gates.md), asset discovery, framework auto-detection, GTA V Legacy vs Enhanced differences (game-versions.md), and dynamic documentation fetching. Use when the user works with FiveM, Lua scripts, natives, resources, fxmanifest, optimization, GTA V Enhanced / migration, /fxmind audit, or general server development without a specific framework context.
 ---
 
 # FiveM Development — Best Practices
@@ -33,6 +33,7 @@ description: FiveM development best practices for any framework (vRP, QBCore, Qb
 | Lookup tables, nil, comments, single-use helpers, checklist, anti-patterns | [style.md](style.md) | §3.1–3.4, §3.7, §3.9–**§3.11** |
 | SafeEvent, SetCooldown, endpoint auth, server resolution, input validation | [security.md](security.md) | §4.6–4.8, **§5.1–§5.3** |
 | cerberus export signatures & examples | [api.md](api.md) | §4.3–4.4 |
+| GTA V Legacy vs Enhanced — server IDs, OneSync, state bags, `stream_enhanced`, migration | [game-versions.md](game-versions.md) | §6.1–§6.4 |
 | **Implement / refactor (task mode DoD)** | [quality-gates.md](quality-gates.md) | Gate A QUALITY + self-review loop |
 | **NUI / React UI (CEF fill, Vite hash)** | [fivem-react-nui/SKILL.md](../fivem-react-nui/SKILL.md) · [ui-guide.md](../fivem-react-nui/ui-guide.md) §2, §6 |
 | Index of all § links | [best-practices.md](best-practices.md) | TOC only |
@@ -94,6 +95,7 @@ Before writing any native or API call: verify name, parameters, and client/serve
 | New resource / monolith | **READ** [architecture.md](architecture.md) + [style.md](style.md) |
 | Security / SafeEvent / endpoint auth / input validation | **READ** [security.md](security.md) |
 | cerberus export API | **READ** [api.md](api.md) |
+| Legacy vs Enhanced / migrating to Enhanced | **READ** [game-versions.md](game-versions.md); **FETCH** https://docs.fivem.net/docs/developers/legacy-vs-enhanced/ for anything not listed there |
 
 ---
 
@@ -109,6 +111,7 @@ Before writing any native or API call: verify name, parameters, and client/serve
 | Performance | Wait(0), loops, distance, payload, tunnel_res, broadcast, StateBag, `AddStateBagChangeHandler`, cache, client cache, SQL write | Read performance.md (§1.4–§1.6.3, §2.1–§2.2.1) |
 | Entities | server `CreatePed` / `CreateObjectNoOffset` / `CreateVehicleServerSetter`, spawn zone, despawn | Read architecture.md §3.13 |
 | Measurement | resmon, profiler, hitch warning, "how many ms" | Read audit-passes.md §2.6 |
+| Game version | Enhanced, Legacy, `cfx-server`, `stream_enhanced`, `sv_syncTickRate`, .NET 10, migration | Read game-versions.md |
 | Audit | `/fxmind audit`, refactor input | Read audit-passes.md (§2.3–§2.5) |
 | Architecture | new resource, server.lua, refactor layout | Read architecture.md §3.5–3.6 first |
 | Style | comments, if/else cleanup, `local function` extract vs inline | Read style.md (§3.11) |
@@ -146,6 +149,7 @@ Before writing any native or API call: verify name, parameters, and client/serve
 15. **Flags are reacted to, not polled:** state bag written by the server + `AddStateBagChangeHandler` on the reader; never parse `bagName`, never authorize from a bag (performance.md §1.6.3).
 16. **DB writes:** upsert in one statement, many rows in one transaction, indexes on filtered columns, write-behind only for loss-tolerant data (performance.md §2.1.2).
 17. **Shared entities are server-created, tracked and deleted by the same resource;** presence is resolved from server coords (architecture.md §3.13).
+18. **`source` is a connection, not a player:** every `source`-keyed table is cleared on leave; persist the character id. On GTAV Enhanced a released ID goes to the next player (game-versions.md §6.2).
 
 ---
 
@@ -194,6 +198,7 @@ resource_name/
 | Thread polling a `.state` flag | `AddStateBagChangeHandler` (§1.6.3) |
 | `SELECT` then `INSERT`/`UPDATE`; query per row | Upsert / one transaction (§2.1.2) |
 | Spawn without a delete path; count players by client events | Tracked handles + server coords check (§3.13) |
+| `source`-keyed table never cleared; `source` stored as identity | Clear on leave; persist Passport / citizenid (game-versions §6.2) |
 | Invent natives/APIs | Verify first |
 
 Full tables: [style.md](style.md) §3.10–§3.11, [architecture.md](architecture.md) §3.6.

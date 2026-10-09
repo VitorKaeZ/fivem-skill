@@ -31,7 +31,7 @@ npx skills add proelias7/fivem-skill
 
 | Skill | Description |
 |-------|-------------|
-| `fivem-development` | Best practices — one skill, split refs (`communication` / `performance` / `architecture` / `style` / `security` / `api`) |
+| `fivem-development` | Best practices — one skill, split refs (`communication` / `performance` / `architecture` / `style` / `security` / `api` / `game-versions`) |
 | `fivem-react-nui` | React + Vite NUI |
 | `vrp-framework` | vRP Creative / vRPEX |
 | `qbcore-framework` | QBCore |
@@ -52,7 +52,8 @@ skills/
 │   ├── architecture.md       ← §3.5–3.6, §3.8, §3.13
 │   ├── style.md              ← §3.1–3.4, §3.7, §3.9–3.10
 │   ├── security.md           ← §4.6–4.8, §5.1–5.4
-│   └── api.md                ← §4.3–4.4
+│   ├── api.md                ← §4.3–4.4
+│   └── game-versions.md      ← §6.1–6.4 GTA V Legacy vs Enhanced
 ├── fivem-react-nui/
 ├── vrp-framework/
 ├── qbcore-framework/
