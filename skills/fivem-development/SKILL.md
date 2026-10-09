@@ -27,7 +27,7 @@ description: FiveM development best practices for any framework (vRP, QBCore, Qb
 | Topic | File | Key sections |
 |-------|------|--------------|
 | Tunnel / events / `_` prefix / same-side calls / response budget | [communication.md](communication.md) | §1.1–§1.3, §1.7 |
-| Loops, dynamic sleep, distance checks §1.5.1, payloads, tunnel_res, broadcast, StateBags (cost §1.6.2, change handlers §1.6.3), cache (server + client §2.1.1), DB writes §2.1.2, view cache, client data seeding / bootstrap §2.2.1 | [performance.md](performance.md) | **§1.4–§1.6.3**, §2.1–§2.2.1, §4.1–4.2, §4.5 |
+| Loops, dynamic sleep, distance checks / frame-thread contents §1.5.1, Lua hot-path costs §1.5.2, payloads, tunnel_res, broadcast, StateBags (cost §1.6.2, change handlers §1.6.3), cache (server + client §2.1.1), DB writes §2.1.2, view cache, client data seeding / bootstrap §2.2.1 | [performance.md](performance.md) | **§1.4–§1.6.3**, §2.1–§2.2.1, §4.1–4.2, §4.5 |
 | **Audit only** — Pass 0–7, matrices V/E/N, report gates, measurement (resmon / profiler) | [audit-passes.md](audit-passes.md) | §2.3–§2.5, §2.6 |
 | Monolith layout, globals vs fake modules, state placement, server-owned entities (spawn / despawn) | [architecture.md](architecture.md) | **§3.5–§3.6**, §3.8, §3.13 |
 | Lookup tables, nil, comments, single-use helpers, checklist, anti-patterns | [style.md](style.md) | §3.1–3.4, §3.7, §3.9–**§3.11** |
@@ -54,7 +54,7 @@ description: FiveM development best practices for any framework (vRP, QBCore, Qb
 | D1 | no DB in hot paths | performance §2.1, §2.1.1, §2.1.2 |
 | D2 | one round-trip, no N+1 | performance §1.4, §2.1.2 |
 | D3 | server owns truth | security §5.2–§5.3; performance §1.6.3; architecture §3.13 |
-| T1/T2 | event-driven, dynamic sleep | performance §1.5–§1.5.1, §1.6.3 |
+| T1/T2 | event-driven, dynamic sleep | performance §1.5–§1.5.2, §1.6.3 |
 | C1 | minimal code, no single-use helpers | style §3.11–§3.12, communication §1.3 |
 | C2 | readable flow, no globals | architecture §3.5–§3.6, §3.8; style §3.1–§3.4 |
 | C3/C4 | validate once; clean diff | security §5.3; style §3.7, §3.9 |
@@ -88,7 +88,7 @@ Before writing any native or API call: verify name, parameters, and client/serve
 | ox_lib | **FETCH** https://overextended.dev/ox_lib |
 | GTA V asset | **READ** [asset-discovery.md](asset-discovery.md) |
 | Communication / Tunnel | **READ** [communication.md](communication.md) |
-| Cache / sleep / distance loops / StateBag handlers / DB writes / broadcast / cerberus sync / client cache / seeding client data (§2.2.1) | **READ** [performance.md](performance.md) |
+| Cache / sleep / distance loops / Lua micro-optimization (closures, tables, `table.insert`, `ipairs`) / StateBag handlers / DB writes / broadcast / cerberus sync / client cache / seeding client data (§2.2.1) | **READ** [performance.md](performance.md) |
 | Spawning peds / props / vehicles other players must see | **READ** [architecture.md](architecture.md) §3.13 |
 | "Is it slow?" / hitch warning / resmon / profiler | **READ** [audit-passes.md](audit-passes.md) §2.6 |
 | `/fxmind audit` | **READ** [audit-passes.md](audit-passes.md) |
@@ -108,7 +108,7 @@ Before writing any native or API call: verify name, parameters, and client/serve
 | ox_lib | `lib.*` | Fetch overextended.dev/ox_lib |
 | Asset Discovery | prop / vehicle / ped model | Read asset-discovery.md |
 | Communication | Tunnel, callback, `_` prefix, same-side `TriggerEvent`, response budget | Read communication.md |
-| Performance | Wait(0), loops, distance, payload, tunnel_res, broadcast, StateBag, `AddStateBagChangeHandler`, cache, client cache, SQL write | Read performance.md (§1.4–§1.6.3, §2.1–§2.2.1) |
+| Performance | Wait(0), loops, distance, `ThisFrame`, closures in loops, `table.insert` / `ipairs` / `..` in hot loops, payload, tunnel_res, broadcast, StateBag, `AddStateBagChangeHandler`, cache, client cache, SQL write | Read performance.md (§1.4–§1.6.3, §2.1–§2.2.1) |
 | Entities | server `CreatePed` / `CreateObjectNoOffset` / `CreateVehicleServerSetter`, spawn zone, despawn | Read architecture.md §3.13 |
 | Measurement | resmon, profiler, hitch warning, "how many ms" | Read audit-passes.md §2.6 |
 | Game version | Enhanced, Legacy, `cfx-server`, `stream_enhanced`, `sv_syncTickRate`, .NET 10, migration | Read game-versions.md |
@@ -150,6 +150,7 @@ Before writing any native or API call: verify name, parameters, and client/serve
 16. **DB writes:** upsert in one statement, many rows in one transaction, indexes on filtered columns, write-behind only for loss-tolerant data (performance.md §2.1.2).
 17. **Shared entities are server-created, tracked and deleted by the same resource;** presence is resolved from server coords (architecture.md §3.13).
 18. **`source` is a connection, not a player:** every `source`-keyed table is cleared on leave; persist the character id. On GTAV Enhanced a released ID goes to the next player (game-versions.md §6.2).
+19. **Frame thread = per-frame natives only;** state reads go to a slow thread. In hot loops: no closures or tables created per iteration, numeric `for` over arrays, `t[#t + 1]`, `table.concat`. Elsewhere, readability wins (performance.md §1.5.1–§1.5.2).
 
 ---
 
@@ -195,6 +196,7 @@ resource_name/
 | Client asks for initial data on start (`requestSync`) | Server push at start + player-loaded hook (§2.2.1) |
 | Reload whole cache after one CRUD | Patch one key + delta (§2.2.1) |
 | `GetDistanceBetweenCoords` / full list every frame | `#(a - b)` + slow scan (§1.5.1) |
+| Handler / thread / closure created inside a loop; tables built every frame | Register once; build once (§1.5.2) |
 | Thread polling a `.state` flag | `AddStateBagChangeHandler` (§1.6.3) |
 | `SELECT` then `INSERT`/`UPDATE`; query per row | Upsert / one transaction (§2.1.2) |
 | Spawn without a delete path; count players by client events | Tracked handles + server coords check (§3.13) |

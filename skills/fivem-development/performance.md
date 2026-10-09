@@ -121,6 +121,8 @@ Dynamic sleep (§1.5) decides **how often** a thread runs. This section is about
 2. **Read the ped and its coords once per iteration**, outside the item loop — never per item.
 3. **Split the work:** a slow thread scans the full list and keeps only what is near; the per-frame thread touches only that short list and sleeps when it is empty.
 4. **ox_lib ensured in the project** → `lib.points` / `lib.zones` replace the hand-written scan (see `qbox-framework`). Do not add ox_lib as a dependency only for this.
+5. **The frame thread holds only per-frame work:** natives that must run every frame (`*ThisFrame`, `Draw*`, `DisableControlAction`). State reads (`IsPedDeadOrDying`, `IsPedInAnyVehicle`, …) run in the slow thread and are stored in locals the frame thread reads.
+6. **Do not cache `PlayerPedId()` for the lifetime of a thread.** The handle changes on respawn and model change; re-read it each slow-thread iteration (it is cheap at 500 ms).
 
 ```lua
 -- WRONG: native distance, full list, every frame
@@ -171,9 +173,42 @@ end)
 | `GetDistanceBetweenCoords` / `Vdist` in a loop | Native call per item per tick | `#(a - b)` |
 | `PlayerPedId()` / `GetEntityCoords` inside the item loop | Same value fetched N times | Read once per iteration |
 | `Wait(0)` thread iterating every point/shop/garage | Cost grows with config size, even far away | Slow scan → short list → frame loop (or `lib.points`) |
+| State natives (`IsPedDeadOrDying`, `IsPedInAnyVehicle`) read inside the `Wait(0)` thread | Native calls every frame for values that change rarely | Slow thread writes locals; frame thread reads them (rule 5) |
+| `local ped = PlayerPedId()` once before `while true` | Stale handle after respawn / model change | Re-read in the slow thread (rule 6) |
+| Enumerating world entities (`FindFirstPed` / `FindNextPed`) every frame | Walks the whole pool 60×/s | Slow interval (≥ 500 ms) |
 | `Citizen.CreateThread` / `Citizen.Wait` / `GetPlayerPed(-1)` in new code | Legacy aliases; inconsistent with the rest of the file | `CreateThread` / `Wait` / `PlayerPedId()` — do not rewrite untouched legacy code just for this (§3.11) |
 
 **Audit grep hints:** `GetDistanceBetweenCoords`, `Vdist`, and any `Wait(0)` thread whose body has `pairs(` / `ipairs(` over a config or synced table.
+
+### 1.5.2 Lua in the hot path — measured on Lua 5.4
+
+Natives and network (§1.5–§1.6) dominate a resource's cost. Pure-Lua micro-optimizations matter **only** inside a per-frame (`Wait(0)`) thread, a loop over a large list, or a handler that runs for every player — never apply them to code that runs once or on a timer (§2.6 rule 1: judge by behavior, not by guesses). Readability wins everywhere else.
+
+**Measured** (Lua 5.4 interpreter, 5 M iterations, best of 5 runs; port of the [Spring RTS Lua Performance](https://springrts.com/wiki/Lua_Performance) tests, which were Lua 5.1 — their percentages do not apply to FiveM). CfxLua adds its own extensions, so treat the ratios as a guide, not as FiveM ms. Reproduce with `lua tools/lua-performance-bench.lua` in the repo:
+
+| Rule (hot path only) | Slow | Fast | Measured |
+|----------------------|------|------|----------|
+| **Do not create functions inside a loop** | `f(x, function(a) ... end)` per iteration | `local function` defined once, passed by name | closure per iteration **2.5×** slower + garbage |
+| **Pre-size table constructors** | `local t = {}` then `t[1] = … t[2] = …` | `{a, b, c}` / `{x = 1, y = 2}` | array **2.6×**, hash **2.1×** |
+| **No new table per frame** | `{...}` built inside `Wait(0)` | Build once outside the loop, reuse — only if it is never mutated (shared = same object) | new 3-item table **18×** vs reusing one |
+| **Strings: `table.concat`** | `s = s .. part` in a loop | `parts[#parts + 1] = part` → `table.concat(parts)` | 1000 parts: **7.3×** |
+| **Arrays: numeric `for`** | `pairs` / `ipairs` | `for i = 1, #t do local v = t[i]` | `ipairs` **2.8×**, `pairs` **3×**. Caching `#t` makes no difference. `pairs` stays for hash tables |
+| **Append without a call** | `table.insert(t, v)` | `t[#t + 1] = v` or a counter | `table.insert` **2.6×**; `#t + 1` 1.4×; counter 1.07× |
+| **Compare, do not call** | `math.max(a, b)` / `math.min` | `if a > b then …` | **2.9×** |
+| **`%` instead of `math.fmod`** | `math.fmod(i, n)` | `i % n` (same result for positive numbers only) | **3.2×** |
+| **Read `t[i]` once** | `t[i].x = t[i].x + 1` | `local v = t[i]; v.x = v.x + 1` | 1.3× |
+| **Localize globals in hot files** | `math.min` / a global function per call | `local min = math.min` at file top | 1.2–1.3× — natives are globals, but the native call itself costs far more than the lookup |
+| **`x or default`** | `if x == nil then y = d else y = x end` | `local y = x or d` | 1.3× — **wrong when `x` can be `false`** (gives `d`) |
+
+**No measurable difference — do not "fix":** `x^2` vs `x*x`, `t["foo"]` vs `t.foo`, `local f = obj.method` before calling it, caching `#t` in a local.
+
+| Anti-Pattern | Problem | Solution |
+|--------------|---------|----------|
+| `AddEventHandler` / `RegisterNetEvent` / `CreateThread` inside a loop or another handler | A new handler / thread on every pass: duplicate execution and leak, not just slowness | Register once at file top |
+| Table / string built inside `Wait(0)` | Garbage every frame → GC pauses (hitches) | Build once, reuse; `table.concat` |
+| Micro-optimizing code that runs once or every few seconds | Less readable, no measurable gain | Leave it (§3.11) |
+
+**Audit grep hints:** `function(` as an argument inside `for` / `while` bodies; `AddEventHandler` / `RegisterNetEvent` / `CreateThread` nested in a loop or handler; `{` constructors and `..` concatenation inside `Wait(0)` threads; `table.insert` / `ipairs` / `math.max` inside per-frame loops.
 
 ### 1.6 Payloads in Events
 

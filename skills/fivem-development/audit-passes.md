@@ -361,6 +361,7 @@ Before saving the report, confirm:
 - [ ] StateBags: no `GlobalState` / replicated writes in hot loops; bags stay small (§1.6.2)
 - [ ] StateBags (read side): no thread polling a `.state` flag; no hand-parsed `bagName`; no bag read as authorization (§1.6.3)
 - [ ] Client loops: no `GetDistanceBetweenCoords` / `Vdist`; no `Wait(0)` thread iterating a full config/synced list (§1.5.1)
+- [ ] Frame threads: only per-frame natives in `Wait(0)`; no handler / thread / closure created in a loop; no tables or string concatenation built per frame (§1.5.1–§1.5.2)
 - [ ] DB writes: no `SELECT`-then-write, no query per row in a loop, recurring `WHERE` columns indexed, write-behind only for loss-tolerant data (§2.1.2)
 - [ ] Server-created entities: handle tracked, delete path on empty / `onResourceStop`, presence not counted by client events (architecture §3.13)
 - [ ] Performance numbers: every ms / gain in the report is either measured (§2.6 capture cited) or labeled **expected**

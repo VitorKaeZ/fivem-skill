@@ -12,7 +12,7 @@ Theory lives in sibling files — this file only states **what to do** and **whe
 |-------|------|
 | Tunnel, response budget, N+1 | [communication.md](communication.md) §1.1 |
 | Payload, cache, broadcast, audit E-a…E-g | [performance.md](performance.md) §1.4–§1.6, §2.1, §2.1.1 |
-| Distance / split threads, StateBag handlers, DB writes | [performance.md](performance.md) §1.5.1, §1.6.3, §2.1.2 |
+| Distance / split threads, Lua hot path, StateBag handlers, DB writes | [performance.md](performance.md) §1.5.1–§1.5.2, §1.6.3, §2.1.2 |
 | Monolith, globals, server-owned entities | [architecture.md](architecture.md) §3.5–§3.6, §3.13 |
 | Comments, anti-patterns, local-function extract | [style.md](style.md) §3.7, §3.10–**§3.11** |
 | SafeEvent, validation, auth | [security.md](security.md) §4.6–§4.8, §5.1–§5.3 |
@@ -92,6 +92,8 @@ Apply **every row** that matches something you created or changed in the diff.
 | # | Check | Rule | Ref |
 |---|-------|------|-----|
 | L1 | Distance | `#(a - b)`; ped and coords read once per iteration; full list scanned only in a slow thread | §1.5.1 |
+| L1b | Frame thread | `Wait(0)` body has only per-frame natives; state reads in a slow thread; `PlayerPedId()` re-read, not cached for the thread's lifetime | §1.5.1 |
+| L1c | Hot-path Lua | No handler / thread / closure created in a loop; no table or `..` string built per frame; numeric `for` over arrays | §1.5.2 |
 | L2 | No flag polling | Flag another script must notice → state bag + `AddStateBagChangeHandler`; use `value`, never parse `bagName` | §1.6.3 |
 | L3 | Bag is output | Server never authorizes from a bag a client can write; server table is the truth | §1.6.3 |
 | L4 | Entity lifecycle | Shared entity created on the server, handle tracked, deleted on empty / `onResourceStop`, `DoesEntityExist` before use | §3.13 |
