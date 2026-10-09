@@ -46,10 +46,10 @@ skills/
 │   ├── SKILL.md              ← thin router
 │   ├── best-practices.md     ← index (stable § links)
 │   ├── communication.md      ← §1
-│   ├── performance.md        ← §1.4–1.6.2, §2.1–2.2, §4.1–4.2, §4.5
-│   ├── audit-passes.md       ← §2.3–2.5 (audit only)
+│   ├── performance.md        ← §1.4–1.6.3, §2.1–2.2, §4.1–4.2, §4.5
+│   ├── audit-passes.md       ← §2.3–2.5 (audit only), §2.6 measurement
 │   ├── quality-gates.md      ← task-mode checklist
-│   ├── architecture.md       ← §3.5–3.6, §3.8
+│   ├── architecture.md       ← §3.5–3.6, §3.8, §3.13
 │   ├── style.md              ← §3.1–3.4, §3.7, §3.9–3.10
 │   ├── security.md           ← §4.6–4.8, §5.1–5.4
 │   └── api.md                ← §4.3–4.4

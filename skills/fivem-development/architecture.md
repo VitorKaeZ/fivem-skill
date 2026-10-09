@@ -154,3 +154,107 @@ end)
 ```
 
 **Wrong:** declaring `local lastOpen = 0` halfway down the file between two `RegisterNetEvent` blocks.
+
+### 3.13 Server-owned entities — who creates, who deletes
+
+Gameplay entities that every player must see the same way (job props, animals, bait, shared work vehicles) are **created by the server, tracked in a table, and deleted by the same resource**. A client-created ped/object is a per-client copy at best and a free item printer for a cheat at worst (D3).
+
+**Which native (server side):**
+
+| Native | Behavior | Use |
+|--------|----------|-----|
+| `CreateVehicleServerSetter(model, type, x, y, z, heading)` | Created on the server; handle returned immediately | Vehicles |
+| `CreatePed(pedType, model, x, y, z, heading, true, true)` | Created on the server; handle returned immediately | Peds / animals |
+| `CreateObjectNoOffset(model, x, y, z, true, true, dynamic)` | Created on the server; handle returned immediately. Server side the 7th argument is `dynamic` (physics on/off); there is no heading argument | Props |
+| `CreateVehicle` / `CreateObject` | **RPC** — executed by a client; fallible, not guaranteed to run | Avoid for authoritative spawns |
+
+A handle of `0` means creation failed — check it before storing.
+
+**Rules:**
+
+1. **Every handle goes in a table at file top (§3.8) and has a delete path:** area empty, owner left, job finished, `onResourceStop`. A resource that only creates leaks entities for the whole uptime and across every `ensure`.
+2. **Culling is not cleanup.** OneSync culling only limits which clients an entity is *sent* to; whether the server itself drops an entity nobody is near depends on its orphan mode. Do not rely on either: delete explicitly, and because the server may have removed it first, **always** `DoesEntityExist(handle)` before using a stored handle. `SetEntityOrphanMode(handle, 2)` (KeepEntity) is only for entities that must outlive every nearby player; then deletion is entirely yours.
+3. **Presence is resolved by the server (D3, N5).** A slow server thread compares `GetEntityCoords(GetPlayerPed(src))` with the area. Do **not** count players with client `enter` / `leave` events: they are spam-able (§5.1), forgeable, and a disconnect never sends `leave`, so the counter drifts. If the project already drives this from client zones (`lib.zones` `onEnter` / `onExit`), the server re-checks the coords and keeps a **set keyed by `source`** cleared on `playerDropped` — never a `+1 / -1` counter.
+4. **Spawn coords come from config.** The server has no collision or ground lookup — store exact spawn positions; do not compute offsets and hope they are on the ground.
+5. **Shared flags on the entity go in its state bag,** set by the server at spawn (performance §1.6.3). Do not mirror what OneSync already syncs (health, position).
+6. **The server decides what exists; the owning client moves it.** Server-side `Task*` / `SetEntity*` calls on a ped are RPC to its owner — fallible. Send one event to the owner (or let a state-bag handler start the task) instead of driving movement from the server.
+7. **Anti-dupe = server flips the flag before paying.** `if state.skinned then return end; state:set("skinned", true, true)` runs before the reward, in the same handler, on the server.
+
+```lua
+-- WRONG: client spawns the shared animal; server counts players by client events
+-- client
+local deer = CreatePed(28, `a_c_deer`, coords.x, coords.y, coords.z, 0.0, true, true)
+TriggerServerEvent("hunting:enteredZone", "paleto")
+-- server
+RegisterNetEvent("hunting:enteredZone", function(id)
+    Zones[id].players = Zones[id].players + 1   -- forgeable; never decremented on disconnect
+end)
+```
+
+```lua
+-- CORRECT: server resolves presence, owns creation and deletion
+local Zones = {
+    paleto = {
+        coords = vector3(-775.0, 5000.0, 130.0),
+        spawnRadius = 300.0,
+        despawnRadius = 400.0,   -- wider than spawn: no create/delete flapping at the edge
+        model = `a_c_deer`,
+        spawns = { vector3(-770.2, 5004.5, 130.1), vector3(-781.6, 4992.3, 131.4) },
+    },
+}
+local Spawned = {}   -- [zoneId] = { handle, ... }; nil = nothing spawned
+
+local function clearZone(zoneId)   -- called by the presence thread and onResourceStop
+    for _, ped in ipairs(Spawned[zoneId]) do
+        if DoesEntityExist(ped) then DeleteEntity(ped) end
+    end
+    Spawned[zoneId] = nil
+end
+
+CreateThread(function()
+    while true do
+        local players = GetPlayers()
+        for zoneId, zone in pairs(Zones) do
+            local radius = Spawned[zoneId] and zone.despawnRadius or zone.spawnRadius
+            local occupied = false
+            for i = 1, #players do
+                if #(GetEntityCoords(GetPlayerPed(players[i])) - zone.coords) < radius then
+                    occupied = true
+                    break
+                end
+            end
+
+            if occupied and not Spawned[zoneId] then
+                local list = {}
+                for _, pos in ipairs(zone.spawns) do
+                    local ped = CreatePed(28, zone.model, pos.x, pos.y, pos.z, 0.0, true, true)
+                    if ped ~= 0 then
+                        Entity(ped).state:set("skinned", false, true)
+                        list[#list + 1] = ped
+                    end
+                end
+                Spawned[zoneId] = list
+            elseif not occupied and Spawned[zoneId] then
+                clearZone(zoneId)
+            end
+        end
+        Wait(3000)
+    end
+end)
+
+AddEventHandler("onResourceStop", function(resource)
+    if resource ~= GetCurrentResourceName() then return end
+    for zoneId in pairs(Spawned) do clearZone(zoneId) end
+end)
+```
+
+| Anti-Pattern | Problem | Solution |
+|--------------|---------|----------|
+| Client `CreatePed` / `CreateObject` for shared gameplay | Different entity per client; cheat can mint it | Server creates (table above) |
+| Server creates, nothing deletes | Entity leak across uptime / `ensure` | Tracked table + delete paths (rule 1) |
+| Stored handle used without `DoesEntityExist` | Entity may already be gone | Check, drop the stale handle |
+| Player counter driven by client `enter` / `leave` events | Forgeable, drifts on disconnect | Server coords check (rule 3) |
+| Map-wide spawn "because OneSync culls it" | Culling limits what is sent, not what was created | Spawn only where a player is; despawn when empty |
+| Server thread teleporting / tasking a ped every tick | RPC to owner per tick; jitter | One event / state bag → owner runs the task |
+
+**Audit grep hints:** server `Create(Ped|Vehicle|Object)` without a table that stores the handle or without any `DeleteEntity`; missing `onResourceStop` in a resource that spawns; client `CreatePed(` / `CreateObject(` with `isNetwork = true` for job/shared entities; `RegisterNetEvent` names containing `enter` / `leave` / `exit` that only increment or decrement.

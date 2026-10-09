@@ -111,6 +111,70 @@ end)
 | Occasional check (zone, weather) | `1000-2000` |
 | Rare check (configs, permissions) | `5000+` |
 
+### 1.5.1 Distance checks — vector math + split threads
+
+Dynamic sleep (§1.5) decides **how often** a thread runs. This section is about **what one iteration costs**: every native call crosses Lua → engine, so a per-frame loop that walks a whole config table pays that cost × items × 60.
+
+**Rules (T2):**
+
+1. **Distance = vector math.** `#(a - b)` (3D) or `#(a.xy - b.xy)` (2D). Never `GetDistanceBetweenCoords` / `Vdist` — the native reference itself lists the vector form as the faster equivalent.
+2. **Read the ped and its coords once per iteration**, outside the item loop — never per item.
+3. **Split the work:** a slow thread scans the full list and keeps only what is near; the per-frame thread touches only that short list and sleeps when it is empty.
+4. **ox_lib ensured in the project** → `lib.points` / `lib.zones` replace the hand-written scan (see `qbox-framework`). Do not add ox_lib as a dependency only for this.
+
+```lua
+-- WRONG: native distance, full list, every frame
+CreateThread(function()
+    while true do
+        Wait(0)
+        for _, point in pairs(Points) do
+            local coords = GetEntityCoords(PlayerPedId())
+            if GetDistanceBetweenCoords(coords.x, coords.y, coords.z, point.coords.x, point.coords.y, point.coords.z, true) < 20.0 then
+                DrawMarker(2, point.coords.x, point.coords.y, point.coords.z, 0.0, 0.0, 0.0, 0.0, 180.0, 0.0, 1.0, 1.0, 1.0, 200, 20, 20, 50, false, true, 2, nil, nil, false)
+            end
+        end
+    end
+end)
+
+-- CORRECT: slow scan builds the short list; the frame loop only draws it
+local Nearby = {}
+
+CreateThread(function()
+    while true do
+        local coords = GetEntityCoords(PlayerPedId())
+        local found = {}
+        for _, point in pairs(Points) do
+            if #(coords - point.coords) < 20.0 then
+                found[#found + 1] = point.coords
+            end
+        end
+        Nearby = found
+        Wait(500)
+    end
+end)
+
+CreateThread(function()
+    while true do
+        local sleep = 500
+        for i = 1, #Nearby do
+            sleep = 0
+            local c = Nearby[i]
+            DrawMarker(2, c.x, c.y, c.z, 0.0, 0.0, 0.0, 0.0, 180.0, 0.0, 1.0, 1.0, 1.0, 200, 20, 20, 50, false, true, 2, nil, nil, false)
+        end
+        Wait(sleep)
+    end
+end)
+```
+
+| Anti-Pattern | Problem | Solution |
+|--------------|---------|----------|
+| `GetDistanceBetweenCoords` / `Vdist` in a loop | Native call per item per tick | `#(a - b)` |
+| `PlayerPedId()` / `GetEntityCoords` inside the item loop | Same value fetched N times | Read once per iteration |
+| `Wait(0)` thread iterating every point/shop/garage | Cost grows with config size, even far away | Slow scan → short list → frame loop (or `lib.points`) |
+| `Citizen.CreateThread` / `Citizen.Wait` / `GetPlayerPed(-1)` in new code | Legacy aliases; inconsistent with the rest of the file | `CreateThread` / `Wait` / `PlayerPedId()` — do not rewrite untouched legacy code just for this (§3.11) |
+
+**Audit grep hints:** `GetDistanceBetweenCoords`, `Vdist`, and any `Wait(0)` thread whose body has `pairs(` / `ipairs(` over a config or synced table.
+
 ### 1.6 Payloads in Events
 
 FiveM Limits:
@@ -262,6 +326,92 @@ LocalPlayer.state:set("nearestDoor", doorId, false)  -- replicate=false
 
 **Audit grep hints:** `GlobalState`, `.state:set`, `LocalPlayer.state`, `Player(..).state`, `Entity(..).state`.
 
+### 1.6.3 StateBags — react with a change handler, do not poll
+
+§1.6.2 is the **cost** side (what a write costs). This is the **read** side: a small, long-lived flag that other code needs to notice (cuffed, on duty, siren muted, door locked) is consumed with `AddStateBagChangeHandler` — the script stays idle until the value changes (T1). A thread that re-reads the flag on a timer is polling.
+
+**What belongs in a bag:**
+
+| Bag | Good fit (small, changes rarely) | Never |
+|-----|----------------------------------|-------|
+| `Player(src).state` | `isCuffed`, `onDuty`, `inSafeZone` | Inventory, money, any table that grows |
+| `Entity(ent).state` | `isLocked`, `sirenMuted`, `skinned`, a small counter such as hits left | Coords, speed, RPM, health — OneSync already syncs them |
+| `GlobalState` | Weather id, event flag, XP multiplier | Per-player data (§1.6.2) |
+
+**Rules:**
+
+1. **Server writes, clients react (D3).** Default write permissions: player state = that player + server; entity state = the owning client + server; `GlobalState` = server. A client therefore **can** write its own player bag and the bags of entities it owns — never treat a bag value as proof of anything. The client asks through a validated endpoint (§5.1–§5.3); the server writes the bag. A project where every write is server-side can enforce it with `setr sv_stateBagStrictMode true`.
+2. **Use the `value` argument.** Inside the handler the bag still holds the **previous** value; reading `state[key]` there returns stale data. The handler cannot reject a change.
+3. **Never parse `bagName`.** It is an internal id. Resolve it with `GetEntityFromStateBagName(bagName)` / `GetPlayerFromStateBagName(bagName)`; both return `0` when the bag is not of that kind **or the entity/player does not exist on this machine yet** — return early on `0`.
+4. **Flat keys only.** `state.a.b = x` does not replicate and nested reads deserialize the whole value every time. Set the whole value or use a flat key (`state["a:b"] = x`).
+5. **A bag is not storage.** The server table / DB stays the source of truth; the bag is the replicated flag derived from it.
+6. **Per-frame work lives behind the flag.** If the flag requires `Wait(0)` work while it is on (disabling controls), the handler starts that thread and the thread ends itself when the flag turns off.
+
+```lua
+-- WRONG: polls a flag forever; costs CPU while nothing changes
+CreateThread(function()
+    while true do
+        Wait(0)
+        if LocalPlayer.state.isCuffed then
+            DisableControlAction(0, 24, true)
+            DisableControlAction(0, 25, true)
+        end
+    end
+end)
+
+-- WRONG: parses bagName by hand and compares a network id with a local handle
+AddStateBagChangeHandler("isCuffed", nil, function(bagName, key, value)
+    local id = tonumber((bagName:gsub("entity:", "")))
+    if id ~= PlayerPedId() then return end
+end)
+```
+
+```lua
+-- CORRECT — server: the only writer, after its own checks
+Player(target).state:set("isCuffed", true, true)
+
+-- CORRECT — client: idle until the flag changes; frame loop exists only while cuffed
+local cuffed = false
+
+AddStateBagChangeHandler("isCuffed", nil, function(bagName, key, value)
+    if GetPlayerFromStateBagName(bagName) ~= PlayerId() then return end
+
+    local wasCuffed = cuffed
+    cuffed = value == true
+    if not cuffed or wasCuffed then return end
+
+    CreateThread(function()
+        while cuffed do
+            DisableControlAction(0, 24, true)
+            DisableControlAction(0, 25, true)
+            Wait(0)
+        end
+    end)
+end)
+```
+
+```lua
+-- CORRECT — entity flag: every client in scope applies it once per change
+AddStateBagChangeHandler("sirenMuted", nil, function(bagName, key, value)
+    local vehicle = GetEntityFromStateBagName(bagName)
+    if vehicle == 0 then return end
+    SetVehicleHasMutedSirens(vehicle, value == true)
+end)
+```
+
+`AddStateBagChangeHandler(keyFilter, bagFilter, handler)` returns a cookie; a handler registered for a temporary feature is removed with `RemoveStateBagChangeHandler(cookie)`.
+
+| Anti-Pattern | Problem | Solution |
+|--------------|---------|----------|
+| Thread re-reading `*.state.x` on a timer | Polling; CPU while idle | `AddStateBagChangeHandler` on that key |
+| `bagName:gsub(...)` / `tonumber(bagName)` | Internal format; network id ≠ local handle | `GetEntityFromStateBagName` / `GetPlayerFromStateBagName`, return on `0` |
+| Reading `Entity(e).state[key]` inside its own handler | Still the old value | Use the `value` argument |
+| Server trusts a bag the client can write | Client-forged state | Server keeps its own table; bag is output only (rule 1) |
+| `playerEnteredScope` / `playerLeftScope` to push per-entity data | Fires once per player pair; the docs recommend bags + handler instead | Entity/player bag + handler |
+| Bag used to replace a one-shot action (notify, play sound once) | Bags are state, not messages | Event to the right target (§1.6.1) |
+
+**Audit grep hints:** `while` threads that read `.state.` every iteration; `AddStateBagChangeHandler` bodies containing `gsub` / `tonumber(bagName`; server handlers that read `Player(source).state` / `Entity(..).state` as authorization.
+
 ## 2. Data Cache
 
 ### 2.1 cacheaside — In-Memory Cache with TTL
@@ -372,6 +522,82 @@ end)
 | N+1 para enriquecer cada item (§1.4) | N queries + N respostas por abertura | Batch `getDetails(ids[])` |
 | Lista carrega campos pesados (LONGTEXT/base64) | Resposta `tunnel_res` gigante (§1.6) | Lista = metadados; detalhe sob demanda |
 | Dado gerável no client buscado do server | Round-trip + armazenamento desnecessários | Gerar localmente (screenshot do ped) |
+
+### 2.1.2 Database writes — index, upsert, write-behind
+
+§2.1 / §2.1.1 remove repeated **reads**. These rules cover the **write** side and the schema the queries run against. Examples use oxmysql's `MySQL.*` API (`server_script '@oxmysql/lib/MySQL.lua'`); the same calls exist as exports (`exports.oxmysql:prepare_async`, …).
+
+**Rules:**
+
+1. **Index what you filter by.** Every column in the `WHERE` / `JOIN` of a recurring query (identifier, passport, citizenid, plate, owner id) has an index, shipped in the resource's `.sql` next to the `CREATE TABLE`. Without it each call scans the whole table and gets slower as the table grows. oxmysql's `mysql_slow_query_warning` convar is the runtime signal; confirm with `EXPLAIN`.
+2. **Upsert in one statement (D2).** `INSERT ... ON DUPLICATE KEY UPDATE` — never `SELECT` to decide between `INSERT` and `UPDATE` (two round-trips and a race between them). Requires a `PRIMARY` / `UNIQUE` key on the conflict column. Not `REPLACE INTO` (it deletes and re-inserts the row).
+3. **Many rows = one round-trip (D2).** Several writes that belong together go in one `MySQL.transaction` — all commit or none do — not one `await` per row inside a loop.
+4. **Write-behind only for data you can afford to lose (D1).** High-churn, low-value fields (playtime, last position, counters) are changed in memory, marked dirty and flushed on an interval, on `playerDropped` and on `onResourceStop`. **Money, items, ownership and anything a player paid for are written in the handler that changes them** — a crash between flushes loses everything still in memory.
+5. **Do not double-write what the framework persists** (vRP datatable, QBCore/ESX player data, ox_inventory). Use the framework API and let it save.
+
+```lua
+-- WRONG: two round-trips and a race between them
+local row = MySQL.single.await("SELECT 1 FROM player_stats WHERE passport = ?", { Passport })
+if row then
+    MySQL.update.await("UPDATE player_stats SET playtime = ? WHERE passport = ?", { playtime, Passport })
+else
+    MySQL.insert.await("INSERT INTO player_stats (passport, playtime) VALUES (?, ?)", { Passport, playtime })
+end
+
+-- CORRECT: one statement (passport is the PRIMARY KEY)
+MySQL.prepare.await("INSERT INTO player_stats (passport, playtime) VALUES (?, ?) ON DUPLICATE KEY UPDATE playtime = ?", { Passport, playtime, playtime })
+```
+
+`MySQL.prepare` accepts only `?` placeholders (`??` and named placeholders throw).
+
+```lua
+-- WRONG: DB write on every tick of a per-player timer
+MySQL.update("UPDATE player_stats SET playtime = playtime + 60 WHERE passport = ?", { Passport })
+
+-- CORRECT: write-behind — memory is hot, DB is flushed in one transaction
+local FLUSH_INTERVAL = 5 * 60 * 1000
+local Playtime = {}   -- [Passport] = seconds
+local Dirty = {}      -- [Passport] = true
+
+local function flushPlaytime()
+    local queries = {}
+    for Passport in pairs(Dirty) do
+        queries[#queries + 1] = {
+            "INSERT INTO player_stats (passport, playtime) VALUES (?, ?) ON DUPLICATE KEY UPDATE playtime = ?",
+            { Passport, Playtime[Passport], Playtime[Passport] }
+        }
+    end
+    if #queries == 0 then return end
+    Dirty = {}
+    if not MySQL.transaction.await(queries) then
+        print("^1[stats] playtime flush failed^7")
+    end
+end
+
+CreateThread(function()
+    while true do
+        Wait(FLUSH_INTERVAL)
+        flushPlaytime()
+    end
+end)
+
+AddEventHandler("onResourceStop", function(resource)
+    if resource == GetCurrentResourceName() then flushPlaytime() end
+end)
+```
+
+The player-leave hook (`playerDropped`, or the framework's — vRP Creative `"Disconnect"`) calls the same flush and then clears that player's entry from `Playtime`, so the table does not grow with every player who ever joined.
+
+| Anti-Pattern | Problem | Solution |
+|--------------|---------|----------|
+| Recurring `WHERE col = ?` on an unindexed column | Full table scan per call; degrades with table size | Index in the resource `.sql` |
+| `SELECT` then `INSERT` / `UPDATE` | 2 round-trips + race | `ON DUPLICATE KEY UPDATE` |
+| `for ... do MySQL.*.await(...) end` | N round-trips; handler suspended N times | One `MySQL.transaction` |
+| `UPDATE` per tick / per movement / per small counter change | DB saturation under load | Write-behind (rule 4) |
+| Write-behind for money / items / purchases | Loss or dupe on crash | Write in the mutating handler |
+| Per-player memory table never cleared on leave | Grows for the whole uptime | Clear the entry in the leave hook |
+
+**Audit grep hints:** `SELECT` immediately followed by `INSERT` / `UPDATE` on the same key; `MySQL.` / `oxmysql` calls inside `for` / `while`; `CREATE TABLE` without `KEY` / `INDEX` for columns used in the resource's `WHERE` clauses.
 
 ### 2.2 Pre-Build Client Sync Payloads (View Cache)
 

@@ -3,7 +3,7 @@
 **Author:** Elias Araújo  
 **Part of:** [best-practices.md](best-practices.md) index (one skill: `fivem-development`)  
 **When to read:** only for `/fxmind audit` (and the audit input of `/fxmind refactor`). Implementation rules live in [performance.md](performance.md), [security.md](security.md) and `.fxmind/policy/fivem-principles.md`.  
-**Section numbers** (`§2.3`–`§2.5`, Pass ids, V-a…V-k, E-a…E-g, N-a…N-d) are stable — keep them when linking from audits/corrections.
+**Section numbers** (`§2.3`–`§2.6`, Pass ids, V-a…V-k, E-a…E-g, N-a…N-d) are stable — keep them when linking from audits/corrections.
 
 ---
 
@@ -359,6 +359,11 @@ Before saving the report, confirm:
 - [ ] **N+1 grep:** no client loop calling server per item of a list (E-g / §1.4)
 - [ ] Broadcast targets: `manager:*` / admin events use `source`, not `-1` (§1.6.1)
 - [ ] StateBags: no `GlobalState` / replicated writes in hot loops; bags stay small (§1.6.2)
+- [ ] StateBags (read side): no thread polling a `.state` flag; no hand-parsed `bagName`; no bag read as authorization (§1.6.3)
+- [ ] Client loops: no `GetDistanceBetweenCoords` / `Vdist`; no `Wait(0)` thread iterating a full config/synced list (§1.5.1)
+- [ ] DB writes: no `SELECT`-then-write, no query per row in a loop, recurring `WHERE` columns indexed, write-behind only for loss-tolerant data (§2.1.2)
+- [ ] Server-created entities: handle tracked, delete path on empty / `onResourceStop`, presence not counted by client events (architecture §3.13)
+- [ ] Performance numbers: every ms / gain in the report is either measured (§2.6 capture cited) or labeled **expected**
 - [ ] Large `-1` or full-cache sync uses cerberus, not manual chunks
 - [ ] Every `build*` caller grep'd with `file:line`
 - [ ] Globals table complete for server + client scope
@@ -400,3 +405,37 @@ The view-cache matrix (V-a–V-k) and V-b/V-d detail sections are for **discover
 **Common mistake (`garages`):** matrix shows V-b and V-d once each, but Findings has **V-b×2** and **V-d×2** → Summary High **11** (wrong) vs **13** (correct: S8–S10 + V-a, V-b×2, V-c, V-d×2, V-e, V-f, V-j). Medium **10** vs **12** when V-h×2 and other Medium rows are under-counted.
 
 Systemic auth (S1 narrative + S2…Sn) still requires **one Findings row per distinct issue** — do not collapse events into a single row without listing sub-rows in the table.
+
+### 2.6 Measurement — resmon & profiler (evidence, not a pass)
+
+The passes above are **static**: they read code. A capture turns "this loop is expensive" into a number. Use it when the user can run the server; never invent a figure when they cannot.
+
+**Client (F8 console):**
+
+| Command | Shows | Look for |
+|---------|-------|----------|
+| `resmon true` | CPU ms and memory per resource | A resource that never returns to ~0.00 ms while the player is idle and away from its points → always-on loop (performance §1.5, §1.5.1, §1.6.3) |
+| `netgraph true` | Ping, packets and bytes in / out | Spikes when one resource acts → payload / broadcast (performance §1.6–§1.6.2) |
+| `cl_drawperf true` | FPS, ping, packet loss, CPU / GPU usage | General client health before blaming a script |
+| `strdbg true` | What the streamer is loading | Asset problem, not a script problem — out of scope for a code audit |
+
+**Profiler (server console or F8):**
+
+```text
+profiler record 500      # capture 500 frames
+profiler status          # is a capture running / how many frames
+profiler view            # F8: opens Chrome; server console: prints a link to open in Chrome
+profiler saveJSON a.json # saved next to the server start script; load in Chrome DevTools → Performance
+```
+
+Record **while the symptom is happening** (hitch warning, the UI open, the zone crowded). A capture taken on an idle server proves nothing.
+
+**DB:** oxmysql's `mysql_slow_query_warning` convar prints slow queries; a table that shows up there needs an index or a cache (performance §2.1, §2.1.2).
+
+**Rules:**
+
+1. **No official ms budget exists.** Do not quote "must be under X ms" as a platform rule. Judge by behavior: idle resource near zero, cost appears only while its feature is in use.
+2. **Measured vs expected.** A finding may cite a capture (`resmon: 0.42 ms idle, file:line loop`) — or state the gain as **expected** with the mechanism (`N natives per frame → 0 while far`). Never present an estimate as a measurement.
+3. **Before / after under the same conditions** — same place, same player count, same feature state. Otherwise the comparison is void.
+4. **Only documented commands.** `resmon`, `netgraph`, `net_statsFile`, `cl_drawfps`, `cl_drawperf`, `strdbg`, `strlist`, `netobjviewer` and the `profiler` subcommands above are in the Cfx.re docs. Names that circulate in AI answers and are **not** in the Cfx.re client / server command references — `overlay_draw`, `netstats`, `net_maxPackets`, `ens_filter`, `arch_fileserver_add_url` — must not be suggested (No Hallucination Policy, [SKILL.md](SKILL.md)).
+5. **Report line.** When a capture was used, the report says which command, how many frames and in what situation. When none was available: `Measurement: not available — all gains are expected, not measured.`

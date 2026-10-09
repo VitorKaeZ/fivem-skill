@@ -27,9 +27,9 @@ description: FiveM development best practices for any framework (vRP, QBCore, Qb
 | Topic | File | Key sections |
 |-------|------|--------------|
 | Tunnel / events / `_` prefix / same-side calls / response budget | [communication.md](communication.md) | §1.1–§1.3, §1.7 |
-| Loops, dynamic sleep, payloads, tunnel_res, broadcast, StateBags, cache (server + client §2.1.1), view cache, client data seeding / bootstrap §2.2.1 | [performance.md](performance.md) | **§1.4–§1.6.2**, §2.1–§2.2.1, §4.1–4.2, §4.5 |
-| **Audit only** — Pass 0–7, matrices V/E/N, report gates | [audit-passes.md](audit-passes.md) | §2.3–§2.5 |
-| Monolith layout, globals vs fake modules, state placement | [architecture.md](architecture.md) | **§3.5–§3.6**, §3.8 |
+| Loops, dynamic sleep, distance checks §1.5.1, payloads, tunnel_res, broadcast, StateBags (cost §1.6.2, change handlers §1.6.3), cache (server + client §2.1.1), DB writes §2.1.2, view cache, client data seeding / bootstrap §2.2.1 | [performance.md](performance.md) | **§1.4–§1.6.3**, §2.1–§2.2.1, §4.1–4.2, §4.5 |
+| **Audit only** — Pass 0–7, matrices V/E/N, report gates, measurement (resmon / profiler) | [audit-passes.md](audit-passes.md) | §2.3–§2.5, §2.6 |
+| Monolith layout, globals vs fake modules, state placement, server-owned entities (spawn / despawn) | [architecture.md](architecture.md) | **§3.5–§3.6**, §3.8, §3.13 |
 | Lookup tables, nil, comments, single-use helpers, checklist, anti-patterns | [style.md](style.md) | §3.1–3.4, §3.7, §3.9–**§3.11** |
 | SafeEvent, SetCooldown, endpoint auth, server resolution, input validation | [security.md](security.md) | §4.6–4.8, **§5.1–§5.3** |
 | cerberus export signatures & examples | [api.md](api.md) | §4.3–4.4 |
@@ -47,13 +47,13 @@ description: FiveM development best practices for any framework (vRP, QBCore, Qb
 | N2 | minimal payload | performance §1.6, §2.2 |
 | N3 | big data in pieces | performance §1.6, §2.2.1, §4.1–4.2 (cerberus `SendFullSync`) |
 | N4 | no periodic fan-out | performance §1.4, §1.6.1, §4.2 |
-| N5 | client-side sync / statebags | performance §1.6.2, §2.1.1 |
+| N5 | client-side sync / statebags | performance §1.6.2–§1.6.3, §2.1.1 |
 | N6 | anti-flood | security §4.6–§4.8, §5.1 |
 | N7 | seed client data by server push | performance §2.2.1 |
-| D1 | no DB in hot paths | performance §2.1, §2.1.1 |
-| D2 | one round-trip, no N+1 | performance §1.4 |
-| D3 | server owns truth | security §5.2–§5.3 |
-| T1/T2 | event-driven, dynamic sleep | performance §1.5 |
+| D1 | no DB in hot paths | performance §2.1, §2.1.1, §2.1.2 |
+| D2 | one round-trip, no N+1 | performance §1.4, §2.1.2 |
+| D3 | server owns truth | security §5.2–§5.3; performance §1.6.3; architecture §3.13 |
+| T1/T2 | event-driven, dynamic sleep | performance §1.5–§1.5.1, §1.6.3 |
 | C1 | minimal code, no single-use helpers | style §3.11–§3.12, communication §1.3 |
 | C2 | readable flow, no globals | architecture §3.5–§3.6, §3.8; style §3.1–§3.4 |
 | C3/C4 | validate once; clean diff | security §5.3; style §3.7, §3.9 |
@@ -87,7 +87,9 @@ Before writing any native or API call: verify name, parameters, and client/serve
 | ox_lib | **FETCH** https://overextended.dev/ox_lib |
 | GTA V asset | **READ** [asset-discovery.md](asset-discovery.md) |
 | Communication / Tunnel | **READ** [communication.md](communication.md) |
-| Cache / sleep / broadcast / cerberus sync / client cache / seeding client data (§2.2.1) | **READ** [performance.md](performance.md) |
+| Cache / sleep / distance loops / StateBag handlers / DB writes / broadcast / cerberus sync / client cache / seeding client data (§2.2.1) | **READ** [performance.md](performance.md) |
+| Spawning peds / props / vehicles other players must see | **READ** [architecture.md](architecture.md) §3.13 |
+| "Is it slow?" / hitch warning / resmon / profiler | **READ** [audit-passes.md](audit-passes.md) §2.6 |
 | `/fxmind audit` | **READ** [audit-passes.md](audit-passes.md) |
 | New resource / monolith | **READ** [architecture.md](architecture.md) + [style.md](style.md) |
 | Security / SafeEvent / endpoint auth / input validation | **READ** [security.md](security.md) |
@@ -104,7 +106,9 @@ Before writing any native or API call: verify name, parameters, and client/serve
 | ox_lib | `lib.*` | Fetch overextended.dev/ox_lib |
 | Asset Discovery | prop / vehicle / ped model | Read asset-discovery.md |
 | Communication | Tunnel, callback, `_` prefix, same-side `TriggerEvent`, response budget | Read communication.md |
-| Performance | Wait(0), loops, payload, tunnel_res, broadcast, cache, client cache | Read performance.md (§1.4–§1.6.2, §2.1–§2.2.1) |
+| Performance | Wait(0), loops, distance, payload, tunnel_res, broadcast, StateBag, `AddStateBagChangeHandler`, cache, client cache, SQL write | Read performance.md (§1.4–§1.6.3, §2.1–§2.2.1) |
+| Entities | server `CreatePed` / `CreateObjectNoOffset` / `CreateVehicleServerSetter`, spawn zone, despawn | Read architecture.md §3.13 |
+| Measurement | resmon, profiler, hitch warning, "how many ms" | Read audit-passes.md §2.6 |
 | Audit | `/fxmind audit`, refactor input | Read audit-passes.md (§2.3–§2.5) |
 | Architecture | new resource, server.lua, refactor layout | Read architecture.md §3.5–3.6 first |
 | Style | comments, if/else cleanup, `local function` extract vs inline | Read style.md (§3.11) |
@@ -138,6 +142,10 @@ Before writing any native or API call: verify name, parameters, and client/serve
 11. **Tables > if/else** for 3+ conditions; protect nil.
 12. **Consolidate network:** one Tunnel call with return (§1.1).
 13. **Seed client data by server push:** cache + view built once at resource start (seed `-1`), player-loaded hook sends the cached view to `source`, CRUD patches one key + delta. Never a client `requestSync` on start (performance.md §2.2.1).
+14. **Distance = `#(a - b)`;** full lists are scanned in a slow thread, the frame loop touches only what is near (performance.md §1.5.1).
+15. **Flags are reacted to, not polled:** state bag written by the server + `AddStateBagChangeHandler` on the reader; never parse `bagName`, never authorize from a bag (performance.md §1.6.3).
+16. **DB writes:** upsert in one statement, many rows in one transaction, indexes on filtered columns, write-behind only for loss-tolerant data (performance.md §2.1.2).
+17. **Shared entities are server-created, tracked and deleted by the same resource;** presence is resolved from server coords (architecture.md §3.13).
 
 ---
 
@@ -182,6 +190,10 @@ resource_name/
 | Trust client / rebuild payload every send | Server auth + view cache (§5, §2.2) |
 | Client asks for initial data on start (`requestSync`) | Server push at start + player-loaded hook (§2.2.1) |
 | Reload whole cache after one CRUD | Patch one key + delta (§2.2.1) |
+| `GetDistanceBetweenCoords` / full list every frame | `#(a - b)` + slow scan (§1.5.1) |
+| Thread polling a `.state` flag | `AddStateBagChangeHandler` (§1.6.3) |
+| `SELECT` then `INSERT`/`UPDATE`; query per row | Upsert / one transaction (§2.1.2) |
+| Spawn without a delete path; count players by client events | Tracked handles + server coords check (§3.13) |
 | Invent natives/APIs | Verify first |
 
 Full tables: [style.md](style.md) §3.10–§3.11, [architecture.md](architecture.md) §3.6.

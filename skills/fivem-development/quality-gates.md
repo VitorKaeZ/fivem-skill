@@ -12,7 +12,8 @@ Theory lives in sibling files — this file only states **what to do** and **whe
 |-------|------|
 | Tunnel, response budget, N+1 | [communication.md](communication.md) §1.1 |
 | Payload, cache, broadcast, audit E-a…E-g | [performance.md](performance.md) §1.4–§1.6, §2.1, §2.1.1 |
-| Monolith, globals | [architecture.md](architecture.md) §3.5–§3.6 |
+| Distance / split threads, StateBag handlers, DB writes | [performance.md](performance.md) §1.5.1, §1.6.3, §2.1.2 |
+| Monolith, globals, server-owned entities | [architecture.md](architecture.md) §3.5–§3.6, §3.13 |
 | Comments, anti-patterns, local-function extract | [style.md](style.md) §3.7, §3.10–**§3.11** |
 | SafeEvent, validation, auth | [security.md](security.md) §4.6–§4.8, §5.1–§5.3 |
 | cerberus exports | [api.md](api.md) |
@@ -81,6 +82,19 @@ Apply **every row** that matches something you created or changed in the diff.
 | D2 | Invalidate cache | Same handler that writes also `Delete`/`Set` cacheaside key | §2.1 |
 | D3 | Async | No `executeSync` on hot paths; prefer `*_async` | performance |
 | D4 | Ownership | Mutations include `AND user_id = ?` (or equivalent) | §5.1 |
+| D5 | One round-trip | Upsert = `INSERT ... ON DUPLICATE KEY UPDATE`; several rows = one `MySQL.transaction`; no query per row in a loop | §2.1.2 |
+| D6 | Index | New recurring `WHERE` / `JOIN` column has an index in the resource `.sql` | §2.1.2 |
+| D7 | Write-behind scope | Only loss-tolerant data is flushed later; money / items / purchases are written in the mutating handler | §2.1.2 |
+
+### Client thread / state / entity
+
+| # | Check | Rule | Ref |
+|---|-------|------|-----|
+| L1 | Distance | `#(a - b)`; ped and coords read once per iteration; full list scanned only in a slow thread | §1.5.1 |
+| L2 | No flag polling | Flag another script must notice → state bag + `AddStateBagChangeHandler`; use `value`, never parse `bagName` | §1.6.3 |
+| L3 | Bag is output | Server never authorizes from a bag a client can write; server table is the truth | §1.6.3 |
+| L4 | Entity lifecycle | Shared entity created on the server, handle tracked, deleted on empty / `onResourceStop`, `DoesEntityExist` before use | §3.13 |
+| L5 | Presence | Server resolves who is in an area from coords — no client `enter` / `leave` counter | §3.13 |
 
 ### NUI callback
 
@@ -137,6 +151,8 @@ List every artifact the diff touches:
 endpoints:  func.saveOutfit (Tunnel mutate), NUI save (chain)
 broadcast:  none
 db-writes:  INSERT wardrobe_presets
+threads:    none | client loop over <list> | statebag handler <key>
+entities:   none | server CreatePed/CreateObjectNoOffset → tracked in <table>
 nui:        RegisterNUICallback save
 nui-fill:   DominacaoShell — hex+gradient
 vite-hash:  default (no custom rollup output)
